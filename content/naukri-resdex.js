@@ -125,8 +125,10 @@ function extractCollege(eduText) {
   // Find the "open profile" anchor inside a card. Naukri usually wraps the name
   // in a link that opens a new tab.
   function findProfileLink(card) {
+    // Priority 1: any anchor with a real profile href (not javascript:).
+    // Include .nameLink which Naukri's current React build uses.
     const cands = Array.from(card.querySelectorAll(
-      'a[href*="/resdex/profile/"], a[href*="/resdex/cv/"], a[href*="/profile/"], a[href*="/cv/"], a[href*="/candidate"], a[href*="resume"], a[target="_blank"][href*="naukri"]'
+      'a.nameLink, [class*="nameLink" i] a, a[href*="/resdex/profile/"], a[href*="/resdex/cv/"], a[href*="/profile/"], a[href*="/cv/"], a[href*="/candidate"], a[href*="resume"], a[target="_blank"][href*="naukri"], a[href*="resdex"]'
     ));
     for (const a of cands) {
       const h = a.getAttribute("href") || "";
@@ -134,8 +136,12 @@ function extractCollege(eduText) {
       if (/javascript:/i.test(h)) continue;
       return a;
     }
-    // Some Naukri builds attach onclick to the title text instead of href; pick any clickable name node.
-    const nameNode = card.querySelector('a.title, .candidate-name a, .name a, [class*="Name"] a, h3 a, h4 a, [onclick][class*="name" i], [role="link"][class*="name" i]');
+    // Priority 2: name-area anchor or element, even if href is javascript: — the
+    // profile URL may be in data attributes on the link or on the card itself.
+    const nameNode = card.querySelector(
+      'a.nameLink, [class*="nameLink" i] a, a.title, .candidate-name a, .name a, ' +
+      '[class*="Name"] a, h3 a, h4 a, [onclick][class*="name" i], [role="link"][class*="name" i]'
+    );
     if (nameNode) return nameNode;
     const anchors = Array.from(card.querySelectorAll('a, [role="link"], [onclick]'));
     return anchors.find((a) => looksLikeName(a.textContent || a.innerText || "")) || null;
@@ -170,8 +176,11 @@ function extractCollege(eduText) {
 
     // Check profileUrl on the first card to confirm extraction works.
     const firstLink = cards[0] ? findProfileLink(cards[0]) : null;
-    const firstHref = firstLink?.href || firstLink?.getAttribute?.("href") || "";
-    console.log(`[sourcing-agent/naukri] cardSelector "${matchedSelector}" → ${cards.length} cards, linkSelector → ${firstHref ? "matched" : "missed"} (sample: ${firstHref.slice(0, 80) || "—"})`);
+    const firstHref = (() => {
+      const h = firstLink?.href || firstLink?.getAttribute?.("href") || "";
+      return /^javascript:/i.test(h) ? "" : h;
+    })();
+    console.log(`[sourcing-agent/naukri] cardSelector "${matchedSelector}" → ${cards.length} cards, linkSelector → ${firstHref ? "matched" : "missed/javascript"} (sample: ${firstHref.slice(0, 80) || "—"})`);
 
     const out = [];
     const seenUrls = new Set();
@@ -180,10 +189,28 @@ function extractCollege(eduText) {
       try { card.setAttribute("data-sa-idx", String(idx)); } catch {}
 
       const link = findProfileLink(card);
-      const rawHref = link?.href || link?.getAttribute?.("href") || link?.dataset?.href || link?.dataset?.url || "";
-      const profileUrl = rawHref && !/^javascript:|^#/i.test(rawHref) ? new URL(rawHref, location.href).href.split("?")[0] : "";
-      if (profileUrl && seenUrls.has(profileUrl)) return;
-      if (profileUrl) seenUrls.add(profileUrl);
+      // Collect the raw href from the link element or from data attributes on the
+      // link/card. Never strip query params — Naukri profile URLs encode the
+      // candidate identity in the query string (e.g. ?resumeId=123456789).
+      const rawHref =
+        (link?.href && !/^javascript:/i.test(link.href) ? link.href : "") ||
+        link?.getAttribute?.("href") ||
+        link?.dataset?.href || link?.dataset?.url || link?.dataset?.profileUrl ||
+        card.getAttribute?.("data-href") || card.getAttribute?.("data-url") ||
+        card.getAttribute?.("data-profile-url") || "";
+      const profileUrl = rawHref && !/^javascript:|^#/i.test(rawHref)
+        ? new URL(rawHref, location.href).href   // full URL — keep query params
+        : "";
+      // Dedup by path + the key ID param (avoids false dupes from tracking params).
+      const dedupeKey = (() => {
+        try {
+          const u = new URL(profileUrl);
+          return (u.searchParams.get("resumeId") || u.searchParams.get("candidateId") ||
+                  u.searchParams.get("resume_id") || u.searchParams.get("id") || u.pathname);
+        } catch { return profileUrl; }
+      })();
+      if (dedupeKey && seenUrls.has(dedupeKey)) return;
+      if (dedupeKey) seenUrls.add(dedupeKey);
 
       const nameRaw = clean(link?.innerText?.split("\n")[0] || "")
         || clean(card.querySelector('.candidate-name, .name, [class*="Name"]')?.textContent || "")

@@ -1190,8 +1190,15 @@ async function openProfileInNewTab(portal, resultsTabId, profileUrl, cardIndex, 
           for (const s of linkSels) { link = card.querySelector(s); if (link) break; }
           if (!link) link = Array.from(card.querySelectorAll('a, [role="link"], [onclick]')).find((el) => looksLikeName(el.textContent || el.innerText || ""));
           if (!link) return { ok: false, reason: "no-link" };
-          const href = abs(link.href || link.getAttribute?.("href") || link.dataset?.href || link.dataset?.url || urlPart || "");
-          return { ok: !!href, href };
+          // Prefer a real href; javascript: hrefs are useless for navigation.
+          const rawHref =
+            (/javascript:/i.test(link.href || "") ? "" : link.href) ||
+            (link.getAttribute?.("href") || "").replace(/^javascript:.*/i, "") ||
+            link.dataset?.href || link.dataset?.url || link.dataset?.profileUrl ||
+            card.getAttribute?.("data-href") || card.getAttribute?.("data-url") ||
+            card.getAttribute?.("data-profile-url") || urlPart || "";
+          const href = abs(rawHref);
+          return { ok: /^https?:\/\//i.test(href), href };
         },
         args: [profileUrl || "", typeof cardIndex === "number" ? cardIndex : null, cardSels, linkSels],
       });

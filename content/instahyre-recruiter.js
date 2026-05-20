@@ -81,7 +81,13 @@
     cards.forEach((c, idx) => {
       try { c.setAttribute("data-sa-idx", String(idx)); } catch {}
       const link = findProfileLink(c);
-      const profileUrl = link?.href?.split("?")[0] || "";
+      // Keep full URL including query params — Instahyre may encode the profile
+      // identity there. Skip javascript: hrefs.
+      const rawHref = (link?.href && !/^javascript:/i.test(link.href) ? link.href : "") ||
+        link?.getAttribute?.("href") || link?.dataset?.href || link?.dataset?.url || "";
+      const profileUrl = rawHref && !/^javascript:|^#/i.test(rawHref)
+        ? new URL(rawHref, location.href).href
+        : "";
       if (profileUrl && seenUrls.has(profileUrl)) return;
       if (profileUrl) seenUrls.add(profileUrl);
 
