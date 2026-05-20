@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Sourcing Agent",
-  "version": "1.17.0",
+  "version": "2.0.0",
   "description": "Personal recruiter sourcing tool: JD upload, AI search strings, LinkedIn/Naukri/Instahire scraping, candidate scoring. All data stays in your browser.",
   "permissions": ["storage", "tabs", "scripting", "activeTab", "downloads", "alarms"],
   "host_permissions": [
