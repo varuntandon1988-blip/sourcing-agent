@@ -1254,56 +1254,7 @@ async function runNaukriAgent({ roleId, targetShortlist = 10, hardCapPages = 10,
   let returnTabUrl = null; // remember results URL so we can navigate back after profile views
 
   try {
-    const RESULTS_HINT_RX = /resdex\.naukri\.com\/.*(result|search-result|candidate|profilesearch)/i;
-
-    // Check if the recruiter is already on a results page before doing anything else.
-    async function probeForCards(tabId) {
-      try {
-        const [probe] = await chrome.scripting.executeScript({
-          target: { tabId },
-          files: ["content/naukri-resdex.js"],
-        });
-        let arr = probe?.result;
-        if (arr && typeof arr.then === "function") arr = await arr;
-        return Array.isArray(arr) && arr.length > 0;
-      } catch { return false; }
-    }
-
-    const initialTab = await chrome.tabs.get(tab.id).catch(() => null);
-    const alreadyOnResults = initialTab &&
-      (RESULTS_HINT_RX.test(initialTab.url || "") || await probeForCards(tab.id));
-
-    if (!alreadyOnResults) {
-      // Recruiter hasn't run the search yet — generate the boolean for reference and wait.
-      logAgent("Crafting Naukri boolean (principal-recruiter mode, resume-text optimized)…");
-      const boolean = await buildNaukriBoolean(role);
-      logAgent("Boolean (" + (boolean?.length || 0) + " chars): " + (boolean || "(empty)"));
-      if (!boolean) throw new Error("Empty boolean — fill in title/skills first.");
-
-      const jd = (role.jdText || role.parsed?.summary || "") + " " + (role.title || "");
-      const requireFemale = /\b(female|women|woman)\s+(candidate|engineer|developer|hire|only)\b/i.test(jd);
-      if (requireFemale) logAgent("JD asks for female candidates — diversity = Female.");
-
-      logAgent("Waiting for Naukri search results page…");
-
-      const WAIT_MS = 5 * 60 * 1000;
-      const POLL_MS = 2500;
-      const start = Date.now();
-      let onResults = false;
-      while (Date.now() - start < WAIT_MS) {
-        const t = await chrome.tabs.get(tab.id).catch(() => null);
-        if (!t) break;
-        if (RESULTS_HINT_RX.test(t.url || "") || await probeForCards(tab.id)) { onResults = true; break; }
-        await new Promise((r) => setTimeout(r, POLL_MS));
-      }
-      if (!onResults) {
-        const msg = "Timed out waiting for Naukri results page. Run the agent again after navigating to search results.";
-        logAgent(msg);
-        await update("searches", search.id, { status: "error", finishedAt: Date.now(), error: msg });
-        return { ok: false, reason: "no-results-page" };
-      }
-    }
-    logAgent("Detected Naukri results page — starting scraping.");
+    logAgent("Starting scrape…");
 
 
     await new Promise((r) => setTimeout(r, 1500));
