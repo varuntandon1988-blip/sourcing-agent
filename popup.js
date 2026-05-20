@@ -76,9 +76,9 @@ function wirePortalBtn(id, portal, label) {
       opts: {
         roleId,
         portal,
-        targetShortlist: 10,
+        targetShortlist: Number(document.getElementById("max").value) || 20,
         hardCapPages: Number(document.getElementById("pages").value) || 10,
-        maxProfiles: Number(document.getElementById("max").value) || 20,
+        maxProfiles: 0,  // unlimited — agent runs until targetShortlist is reached
       },
     }, (resp) => {
       btn.disabled = false;

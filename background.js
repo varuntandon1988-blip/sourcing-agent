@@ -1015,20 +1015,45 @@ async function runPortalAgent({ roleId, portal, targetShortlist = 10, hardCapPag
       if (shortlistCount >= targetShortlist) { logAgent(`Hit target ${targetShortlist}. Stopping.`); break; }
 
       if (page > 1) {
-        logAgent(`Page ${page}: clicking Next…`);
+        logAgent(`Page ${page}: navigating to next page…`);
+        const tabBeforeNav = await chrome.tabs.get(tab.id).catch(() => null);
+        const urlBeforeNav = tabBeforeNav?.url || "";
         const [clk] = await chrome.scripting.executeScript({
           target: { tabId: tab.id },
-          func: (portal) => {
-            const sels = portal === "naukri"
-              ? ['a.fright.fr.btn-secondary[href*="page="]', 'a[title="Next"]', 'a.next', 'button[aria-label="Next"]:not([disabled])', 'a.pagination-next']
-              : ['button[aria-label="Next"]:not([disabled])', 'a[aria-label="Next"]', 'button.next:not([disabled])', 'a.next'];
+          func: () => {
+            const sels = [
+              'button[aria-label="Next"]:not([disabled])',
+              'a[aria-label="Next"]',
+              'button.next:not([disabled])',
+              'a.next',
+              '[class*="pagination"] a:last-child',
+              '[class*="Pagination"] button:not([disabled]):last-child',
+              'a[rel="next"]',
+              'li.next a',
+            ];
             for (const s of sels) { const b = document.querySelector(s); if (b) { b.scrollIntoView(); b.click(); return true; } }
+            const nx = Array.from(document.querySelectorAll('a, button')).find(
+              (b) => /^\s*(next|›|»)\s*$/i.test(b.innerText?.trim() || b.textContent?.trim() || "") && !b.disabled);
+            if (nx) { nx.scrollIntoView(); nx.click(); return true; }
             return false;
           },
-          args: [portal],
         });
-        if (!clk?.result) { logAgent("No Next button — stopping."); break; }
-        await waitForTabLoad(tab.id, 25000);
+        if (clk?.result) {
+          await waitForTabLoad(tab.id, 25000);
+        } else {
+          // Fallback: increment page param in URL (?page=N or ?pageNo=N)
+          try {
+            const u = new URL(urlBeforeNav);
+            const param = u.searchParams.has("page") ? "page" : u.searchParams.has("pageNo") ? "pageNo" : null;
+            if (!param) { logAgent("No next-page button or URL param — stopping."); break; }
+            u.searchParams.set(param, String(parseInt(u.searchParams.get(param) || "1", 10) + 1));
+            await chrome.tabs.update(tab.id, { url: u.href });
+            await waitForTabLoad(tab.id, 25000);
+          } catch {
+            logAgent("Cannot navigate to next page — stopping.");
+            break;
+          }
+        }
       }
 
       const [out] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: [file] });
@@ -1056,6 +1081,9 @@ async function runPortalAgent({ roleId, portal, targetShortlist = 10, hardCapPag
             logAgent(`Opening ${c.name || "(no name)"} in new tab…`);
             const profileTabId = await openProfileInNewTab(portal, tab.id, c.profileUrl, c.cardIndex);
             if (profileTabId) {
+              // Capture real tab URL as profileUrl (covers javascript: href cases)
+              const pTab = await chrome.tabs.get(profileTabId).catch(() => null);
+              if (pTab?.url && /^https?:\/\//i.test(pTab.url)) enriched.profileUrl = pTab.url;
               try {
                 const [pOut] = await chrome.scripting.executeScript({
                   target: { tabId: profileTabId },
@@ -1273,7 +1301,8 @@ async function runNaukriAgent({ roleId, targetShortlist = 10, hardCapPages = 10,
           await chrome.tabs.update(tab.id, { url: returnTabUrl });
           await waitForTabLoad(tab.id, 25000);
         }
-        logAgent(`Page ${page}: clicking Next…`);
+        logAgent(`Page ${page}: navigating to next page…`);
+        // Primary: click Next button
         const [clk] = await chrome.scripting.executeScript({
           target: { tabId: tab.id },
           func: () => {
@@ -1281,16 +1310,31 @@ async function runNaukriAgent({ roleId, targetShortlist = 10, hardCapPages = 10,
               'a.fright.fr.btn-secondary[href*="page="]',
               'a[title="Next"]', 'a.next', 'a.pagination-next',
               'button[aria-label="Next"]:not([disabled])',
+              '[class*="pagination"] a:last-child',
+              '[class*="Pagination"] button:not([disabled]):last-child',
             ];
             for (const s of sels) { const b = document.querySelector(s); if (b) { b.scrollIntoView(); b.click(); return true; } }
-            // Fallback: any element whose text is "Next" within pagination
-            const nx = Array.from(document.querySelectorAll('a, button')).find((b) => /^\s*next\s*$/i.test(b.innerText || "") && !b.disabled);
+            const nx = Array.from(document.querySelectorAll('a, button')).find(
+              (b) => /^\s*(next|›|»)\s*$/i.test(b.innerText || b.textContent || "") && !b.disabled);
             if (nx) { nx.scrollIntoView(); nx.click(); return true; }
             return false;
           },
         });
-        if (!clk?.result) { logAgent("No Next button — stopping."); break; }
-        await waitForTabLoad(tab.id, 25000);
+        if (clk?.result) {
+          await waitForTabLoad(tab.id, 25000);
+        } else {
+          // Fallback: increment pageNo in URL (Naukri uses ?pageNo=N)
+          try {
+            const u = new URL(returnTabUrl);
+            const curPage = parseInt(u.searchParams.get("pageNo") || "1", 10);
+            u.searchParams.set("pageNo", String(curPage + 1));
+            await chrome.tabs.update(tab.id, { url: u.href });
+            await waitForTabLoad(tab.id, 25000);
+          } catch {
+            logAgent("Cannot navigate to next page — stopping.");
+            break;
+          }
+        }
         returnTabUrl = (await chrome.tabs.get(tab.id)).url;
       }
 
@@ -1320,6 +1364,9 @@ async function runNaukriAgent({ roleId, targetShortlist = 10, hardCapPages = 10,
             logAgent(`Opening ${c.name || "(no name)"} in new tab…`);
             const profileTabId = await openNaukriProfileInNewTab(tab.id, c.profileUrl, c.cardIndex);
             if (profileTabId) {
+              // Capture the real tab URL as profileUrl (covers javascript: href cases)
+              const pTab = await chrome.tabs.get(profileTabId).catch(() => null);
+              if (pTab?.url && /^https?:\/\//i.test(pTab.url)) enriched.profileUrl = pTab.url;
               try {
                 const [pOut] = await chrome.scripting.executeScript({
                   target: { tabId: profileTabId },

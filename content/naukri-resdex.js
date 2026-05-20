@@ -148,8 +148,9 @@ function extractCollege(eduText) {
   }
 
   async function scrape() {
-    for (let i = 0; i < 2; i++) { window.scrollBy(0, 900); await sleep(350); }
-    window.scrollTo(0, 0); await sleep(300);
+    // Scroll to trigger lazy rendering (Naukri renders rows as they enter viewport)
+    for (let i = 0; i < 10; i++) { window.scrollBy(0, 1000); await sleep(400); }
+    window.scrollTo(0, 0); await sleep(600);
 
     const cardSelectors = [
       '.candidate-tuple', '.candidateTuple', '.cand-tuple',
