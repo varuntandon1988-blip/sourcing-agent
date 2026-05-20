@@ -1,11 +1,23 @@
 <!doctype html>
-<html><head>
+<html lang="en"><head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Sourcing Agent — Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=Inter:wght@400;500&display=swap">
   <link rel="stylesheet" href="ui/dashboard.css">
 </head><body>
   <header>
-    <div class="brand">⚡ Sourcing Agent</div>
+    <a class="brand" href="#/roles" data-route="roles">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <rect x="1" y="5" width="18" height="11" rx="2" stroke="#0056b3" stroke-width="1.5" fill="none"/>
+        <rect x="6" y="2" width="8" height="4" rx="1" stroke="#0056b3" stroke-width="1.5" fill="none"/>
+        <line x1="1" y1="10" x2="19" y2="10" stroke="#0056b3" stroke-width="1.5"/>
+        <rect x="8.5" y="8.5" width="3" height="3" rx="0.5" fill="#0056b3"/>
+      </svg>
+      Sourcing Agent
+    </a>
     <nav>
       <a href="#/roles" data-route="roles">Roles</a>
       <a href="#/searches" data-route="searches">Searches</a>
