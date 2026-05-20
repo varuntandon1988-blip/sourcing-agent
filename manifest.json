@@ -1,0 +1,49 @@
+{
+  "manifest_version": 3,
+  "name": "Sourcing Agent",
+  "version": "1.13.0",
+  "description": "Personal recruiter sourcing tool: JD upload, AI search strings, LinkedIn/Naukri/Instahire scraping, candidate scoring. All data stays in your browser.",
+  "permissions": ["storage", "tabs", "scripting", "activeTab", "downloads", "alarms"],
+  "host_permissions": [
+    "https://*.linkedin.com/*",
+    "https://*.naukri.com/*",
+    "https://*.instahyre.com/*",
+    "https://generativelanguage.googleapis.com/*",
+    "https://api.openai.com/*",
+    "https://api.anthropic.com/*",
+    "https://api.groq.com/*",
+    "https://openrouter.ai/*",
+    "https://api.mistral.ai/*",
+    "https://api.deepseek.com/*",
+    "https://api.together.xyz/*",
+    "https://api.perplexity.ai/*"
+  ],
+  "background": { "service_worker": "background.js", "type": "module" },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Sourcing Agent",
+    "default_icon": {
+      "16": "icon-16.png",
+      "32": "icon-32.png",
+      "48": "icon-48.png",
+      "128": "icon-128.png"
+    }
+  },
+  "options_ui": { "page": "dashboard.html", "open_in_tab": true },
+  "icons": {
+    "16": "icon-16.png",
+    "32": "icon-32.png",
+    "48": "icon-48.png",
+    "128": "icon-128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.linkedin.com/search/results/people/*", "https://www.linkedin.com/search/results/PEOPLE/*"],
+      "js": ["content/linkedin.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    { "resources": ["dashboard.html", "ui/*"], "matches": ["<all_urls>"] }
+  ]
+}

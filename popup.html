@@ -1,0 +1,42 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Sourcing Agent</title>
+<style>
+  body{font:13px -apple-system,BlinkMacSystemFont,sans-serif;width:300px;margin:0;padding:12px;background:#0f172a;color:#e2e8f0}
+  h1{font-size:14px;margin:0 0 8px;color:#fff}
+  h2{font-size:12px;margin:14px 0 4px;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:.05em}
+  button{background:#2563eb;color:#fff;border:0;padding:8px 12px;border-radius:6px;cursor:pointer;width:100%;margin-top:6px;font-size:13px}
+  button.ghost{background:#1e293b}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  select{width:100%;padding:7px 8px;background:#1e293b;color:#fff;border:1px solid #334155;border-radius:6px;font-size:13px}
+  .row{display:flex;justify-content:space-between;padding:4px 0;color:#94a3b8}
+  .row b{color:#fff}
+  .hint{font-size:11px;color:#64748b;margin-top:4px;line-height:1.4}
+  #status{font-size:12px;color:#94a3b8;margin-top:6px;min-height:14px}
+</style></head>
+<body>
+  <h1>Sourcing Agent</h1>
+  <div class="row"><span>Queued</span><b id="q">0</b></div>
+  <div class="row"><span>Running</span><b id="r">0</b></div>
+  <div class="row"><span>Candidates</span><b id="c">0</b></div>
+
+  <h2>LinkedIn Agent (auto)</h2>
+  <select id="role"></select>
+  <div style="display:flex;gap:6px;margin-top:6px">
+    <input id="pages" type="number" min="1" max="10" value="3" style="flex:1;padding:7px;background:#1e293b;color:#fff;border:1px solid #334155;border-radius:6px" title="Max pages" />
+    <input id="max" type="number" min="1" max="100" value="20" style="flex:1;padding:7px;background:#1e293b;color:#fff;border:1px solid #334155;border-radius:6px" title="Max profiles" />
+  </div>
+  <label style="display:flex;align-items:center;gap:6px;margin-top:6px;font-size:12px;color:#94a3b8">
+    <input id="deep" type="checkbox" checked /> Open each profile for deep score
+  </label>
+  <button id="agent">▶ Run agent on this LinkedIn tab</button>
+  <button id="agentNaukri" class="ghost">▶ Run agent on this Naukri Resdex tab</button>
+  <button id="agentInsta" class="ghost">▶ Run agent on this Instahyre tab</button>
+  <button id="capture" class="ghost">Quick scrape (current page only)</button>
+  <div class="hint">Open the portal's search results in a tab and click Run. Same boolean + scoring is applied across portals.</div>
+  <div id="status"></div>
+
+  <h2>Dashboard</h2>
+  <button id="open" class="ghost">Open dashboard</button>
+  <button id="kick" class="ghost">Run next queued job</button>
+  <script type="module" src="popup.js"></script>
+</body></html>
