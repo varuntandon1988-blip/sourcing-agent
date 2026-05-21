@@ -91,8 +91,12 @@
       if (profileUrl && seenUrls.has(profileUrl)) return;
       if (profileUrl) seenUrls.add(profileUrl);
 
-      const name = text(c, '.candidate-name, h3, h4, [class*="name"], [class*="Name"]') ||
-                   clean(link?.innerText?.split("\n")[0]);
+      // Use innerText + first-line to avoid grabbing entire card text from
+      // broad containers that happen to have "name" in their class names.
+      const nameEl = c.querySelector('.candidate-name, h3, h4');
+      const name = (nameEl ? clean((nameEl.innerText || nameEl.textContent || "").split("\n")[0]) : "") ||
+                   clean(link?.innerText?.split("\n")[0]) ||
+                   clean(c.querySelector('[class*="candidateName" i], [class*="candidate-name" i]')?.innerText?.split("\n")[0] || "");
       if (!name) return;
 
       const headline = text(c, '.candidate-title, .designation, [class*="title"], [class*="Title"], [class*="designation"]');

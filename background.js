@@ -1283,9 +1283,7 @@ async function runNaukriAgent({ roleId, targetShortlist = 10, hardCapPages = 10,
 
   try {
     logAgent("Starting scrape…");
-
-
-    await new Promise((r) => setTimeout(r, 1500));
+    const agentCompanies = await resolveTargetCompanies(role);
     returnTabUrl = (await chrome.tabs.get(tab.id)).url;
 
     const seen = new Set();
