@@ -1159,7 +1159,12 @@ const PROFILE_CARD_SELECTORS = {
 };
 const PROFILE_LINK_SELECTORS = {
   naukri: ['a[href*="/resdex/profile/"]', 'a[href*="/resdex/cv/"]', 'a[href*="/profile/"]', 'a[href*="/cv/"]', 'a[href*="candidate"]', 'a[href*="resume"]', 'a[target="_blank"]', 'a.title', '.candidate-name a', '.name a', '[class*="Name"] a', '[class*="name" i] a', 'h3 a', 'h4 a', '[onclick][class*="name" i]', '[role="link"][class*="name" i]', 'a'],
-  instahyre: ['a[href*="/candidate/"]', 'a[href*="/profile/"]', 'a[href*="/c/"]', 'a[target="_blank"][href*="instahyre"]', '.candidate-name a', '[class*="Name"] a', 'h3 a', 'h4 a', 'a.title'],
+  instahyre: [
+    'a[href*="/candidate/"]', 'a[href*="/profile/"]', 'a[href*="/c/"]',
+    'a[href*="/employer/"]', 'a[href*="/hr/"]', 'a[href*="/view/"]',
+    'a[target="_blank"]',
+    '.candidate-name a', '[class*="Name"] a', 'h3 a', 'h4 a', 'a.title',
+  ],
 };
 
 async function openProfileInNewTab(portal, resultsTabId, profileUrl, cardIndex, timeoutMs = 12000) {
@@ -1217,6 +1222,9 @@ async function openProfileInNewTab(portal, resultsTabId, profileUrl, cardIndex, 
           let link = null;
           for (const s of linkSels) { link = card.querySelector(s); if (link) break; }
           if (!link) link = Array.from(card.querySelectorAll('a, [role="link"], [onclick]')).find((el) => looksLikeName(el.textContent || el.innerText || ""));
+          // Last resort: any anchor with a real https href (covers JS-router links where href is set but no matching selector)
+          if (!link) link = Array.from(card.querySelectorAll('a')).find(
+            (a) => a.href && /^https?:\/\//i.test(a.href) && !/^javascript:/i.test(a.href));
           if (!link) return { ok: false, reason: "no-link" };
           // Prefer a real href; javascript: hrefs are useless for navigation.
           const rawHref =

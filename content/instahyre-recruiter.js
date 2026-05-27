@@ -29,19 +29,25 @@
     return null;
   }
   function findProfileLink(card) {
-    const sels = [
-      'a[href*="/candidate/"]', 'a[href*="/profile/"]',
-      'a[href*="/c/"]', 'a[target="_blank"][href*="instahyre"]',
-      '.candidate-name a', '[class*="Name"] a', 'h3 a', 'h4 a', 'a.title',
+    // Priority 1: anchors whose href clearly contains a profile path
+    const profilePatterns = [
+      'a[href*="/candidate/"]', 'a[href*="/profile/"]', 'a[href*="/c/"]',
+      'a[href*="/employer/"]', 'a[href*="/hr/"]', 'a[href*="/view/"]',
+      'a[target="_blank"]', '.candidate-name a', '[class*="Name"] a',
+      'h3 a', 'h4 a', 'a.title',
     ];
-    for (const s of sels) {
+    for (const s of profilePatterns) {
       const a = card.querySelector(s);
-      if (a?.href) return a;
+      if (a && a.href && !/^javascript:/i.test(a.href) && !/^#/.test(a.getAttribute('href') || '')) return a;
     }
-    // Fallback: first anchor whose text looks like a name (2 words, capitalized)
-    const anchors = all(card, 'a');
-    for (const a of anchors) {
-      const t = clean(a.textContent);
+    // Priority 2: any anchor with a real http(s) URL inside the card
+    const allAnchors = all(card, 'a');
+    const realHrefAnchor = allAnchors.find(a =>
+      a.href && /^https?:\/\//i.test(a.href) && !/^javascript:/i.test(a.href));
+    if (realHrefAnchor) return realHrefAnchor;
+    // Priority 3: first anchor whose visible text looks like a person's name
+    for (const a of allAnchors) {
+      const t = clean((a.innerText || a.textContent || '').split('\n')[0]);
       if (/^[A-Z][a-zA-Z'.-]+(\s+[A-Z][a-zA-Z'.-]+){1,3}$/.test(t)) return a;
     }
     return null;
@@ -99,8 +105,18 @@
                    clean(c.querySelector('[class*="candidateName" i], [class*="candidate-name" i]')?.innerText?.split("\n")[0] || "");
       if (!name) return;
 
-      const headline = text(c, '.candidate-title, .designation, [class*="title"], [class*="Title"], [class*="designation"]');
-      const company = text(c, '.candidate-company, [class*="company"], [class*="Company"]');
+      // Use innerText.split('\n')[0] to avoid grabbing all nested text from broad class matches.
+      const headlineEl = c.querySelector('.candidate-title, .designation')
+        || c.querySelector('[class*="designation" i]')
+        || c.querySelector('[class*="title" i]');
+      const headline = headlineEl
+        ? clean((headlineEl.innerText || headlineEl.textContent || '').split('\n')[0])
+        : '';
+      const companyEl = c.querySelector('.candidate-company')
+        || c.querySelector('[class*="company" i]');
+      const company = companyEl
+        ? clean((companyEl.innerText || companyEl.textContent || '').split('\n')[0])
+        : '';
       const location = text(c, '[class*="location"], [class*="Location"]');
       const cardText = clean(c.innerText || "");
       const expRaw = (cardText.match(/[^.;,\n]*\b\d+(?:\.\d+)?\s*(?:y|yr|yrs|year|years)\b[^.;,\n]*/i) || [""])[0];
