@@ -17,7 +17,7 @@
     text('[class*="name" i]');
   const headline =
     text('.designation, .current-designation, [class*="designation" i], [class*="title" i]');
-  const location =
+  const locationText =
     text('.location, [class*="location" i], [class*="Location" i]');
 
   const companies = [];
@@ -52,7 +52,7 @@
     clean(document.body.innerText).slice(0, 3000);
 
   return {
-    name, headline, company, companies, location, skillsList,
+    name, headline, company, companies, location: locationText, skillsList,
     availability, openToWork: availability === "open-to-work",
     experienceText, profileUrl: window.location.href.split("#")[0],
   };

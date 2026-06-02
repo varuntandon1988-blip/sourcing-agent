@@ -14,10 +14,10 @@
     const name = text(c, ".title, a.title");
     const company = text(c, ".comp-name, .companyInfo .subTitle, a.subTitle");
     const headline = text(c, ".job-desc, .job-description");
-    const location = text(c, ".locWdth, .loc, .location");
+    const locationText = text(c, ".locWdth, .loc, .location");
     const link = c.querySelector("a.title")?.href || "";
     if (!name) continue;
-    out.push({ name, headline: name, company, location, snippet: headline, profileUrl: link });
+    out.push({ name, headline: name, company, location: locationText, snippet: headline, profileUrl: link });
     if (out.length >= 25) break;
   }
   chrome.runtime.sendMessage({ type: "candidates", payload: out });

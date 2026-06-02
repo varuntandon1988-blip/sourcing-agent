@@ -19,7 +19,7 @@
     text('[class*="name" i]');
   const headline =
     text('.designation, .current-designation, .title-info, [class*="designation" i]');
-  const location =
+  const locationText =
     text('.loc, .location, [class*="location" i], [class*="Location" i]');
 
   // Companies — gather from experience section
@@ -64,7 +64,7 @@
   function location_safe() { return window.location.href.split("#")[0]; }
 
   return {
-    name, headline, company, companies, location, skillsList,
+    name, headline, company, companies, location: locationText, skillsList,
     availability, openToWork: availability === "open-to-work",
     experienceText, profileUrl: window.location.href.split("#")[0],
   };

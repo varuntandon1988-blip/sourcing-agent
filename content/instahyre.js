@@ -14,11 +14,11 @@
     const name = text(c, ".candidate-name, h3, h4, [class*=name]");
     const headline = text(c, ".candidate-title, .designation, [class*=title]");
     const company = text(c, ".candidate-company, [class*=company]");
-    const location = text(c, "[class*=location]");
+    const locationText = text(c, "[class*=location]");
     const snippet = text(c, "[class*=summary], [class*=skills]");
     const link = c.querySelector("a")?.href || "";
     if (!name) continue;
-    out.push({ name, headline, company, location, snippet, profileUrl: link });
+    out.push({ name, headline, company, location: locationText, snippet, profileUrl: link });
     if (out.length >= 25) break;
   }
   chrome.runtime.sendMessage({ type: "candidates", payload: out });

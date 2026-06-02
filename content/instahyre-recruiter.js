@@ -117,7 +117,7 @@
       const company = companyEl
         ? clean((companyEl.innerText || companyEl.textContent || '').split('\n')[0])
         : '';
-      const location = text(c, '[class*="location"], [class*="Location"]');
+      const locationText = text(c, '[class*="location"], [class*="Location"]');
       const cardText = clean(c.innerText || "");
       const expRaw = (cardText.match(/[^.;,\n]*\b\d+(?:\.\d+)?\s*(?:y|yr|yrs|year|years)\b[^.;,\n]*/i) || [""])[0];
       const ctcRaw = (cardText.match(/[^.;,\n]*\b\d+(?:\.\d+)?\s*(?:l|lpa|lac|lacs|lakh)[^.;,\n]*/i) || [""])[0];
@@ -135,7 +135,7 @@
 
       out.push({
         name, headline, currentTitle: headline, currentCompany: company,
-        location, expYears, expMonths, ctcLacs,
+        location: locationText, expYears, expMonths, ctcLacs,
         keySkills, college, snippet,
         profileUrl, cardIndex: idx,
       });

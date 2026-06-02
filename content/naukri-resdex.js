@@ -181,6 +181,7 @@ function extractCollege(eduText) {
       const h = firstLink?.href || firstLink?.getAttribute?.("href") || "";
       return /^javascript:/i.test(h) ? "" : h;
     })();
+    const selectorLog = `[naukri] cardSelector "${matchedSelector}" → ${cards.length} cards, link ${firstHref ? "matched" : "missed"}`;
     console.log(`[sourcing-agent/naukri] cardSelector "${matchedSelector}" → ${cards.length} cards, linkSelector → ${firstHref ? "matched" : "missed/javascript"} (sample: ${firstHref.slice(0, 80) || "—"})`);
 
     const out = [];
@@ -279,7 +280,7 @@ function extractCollege(eduText) {
         cardIndex: idx,
       });
     });
-    return out;
+    return { cands: out, selectorLog };
   }
   return scrape();
 })();

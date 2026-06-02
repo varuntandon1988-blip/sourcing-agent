@@ -271,11 +271,11 @@ async function captureActiveTab(roleId) {
   if (!portal) throw new Error("Active tab is not LinkedIn, Naukri, or Instahyre");
   const file = CAPTURE_SCRIPTS[portal];
 
-  // All three scrapers return the array via the IIFE return value
+  // All three scrapers return the array (or a {cands,selectorLog} wrapper) via the IIFE return value
   const [out] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: [file] });
-  let candidates = out?.result;
-  if (candidates && typeof candidates.then === "function") candidates = await candidates;
-  if (!Array.isArray(candidates)) candidates = [];
+  let rawResult = out?.result;
+  if (rawResult && typeof rawResult.then === "function") rawResult = await rawResult;
+  const { cands: candidates } = unwrapScraperResult(rawResult);
 
 
   const search = await append("searches", {
@@ -311,6 +311,14 @@ function logAgent(msg) {
   if (agentState.log.length > 200) agentState.log.shift();
   agentState.status = msg;
   chrome.runtime.sendMessage({ type: "agentProgress", state: { ...agentState } }).catch(() => {});
+}
+
+// naukri-resdex.js returns { cands, selectorLog } so the agent can logAgent the
+// raw card count. All other scrapers still return a plain array. This normalises both.
+function unwrapScraperResult(raw) {
+  if (Array.isArray(raw)) return { cands: raw, selectorLog: "" };
+  if (raw?.cands != null) return { cands: Array.isArray(raw.cands) ? raw.cands : [], selectorLog: raw.selectorLog || "" };
+  return { cands: [], selectorLog: "" };
 }
 
 async function waitForTabLoad(tabId, timeoutMs = 25000) {
@@ -977,6 +985,24 @@ async function runLinkedInAgent({ roleId, targetShortlist = 10, hardCapPages = 1
   }
 }
 
+// Polls the scraper every second until the first candidate key changes, indicating
+// an AngularJS/React SPA re-rendered the list after a Next click. Returns the new
+// cands array, or null if the list hasn't changed within timeoutMs.
+async function pollUntilListChanges(tabId, scriptFile, prevFirstKey, timeoutMs = 15000) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    await new Promise((r) => setTimeout(r, 1000));
+    const [out] = await chrome.scripting.executeScript({ target: { tabId }, files: [scriptFile] });
+    let cands = out?.result;
+    if (cands && typeof cands.then === "function") cands = await cands;
+    if (Array.isArray(cands) && cands[0]) {
+      const firstKey = cands[0].profileUrl || cands[0].name || "";
+      if (firstKey && firstKey !== prevFirstKey) return cands;
+    }
+  }
+  return null;
+}
+
 // Generic portal agent for Naukri Resdex and Instahyre Recruiter.
 // Reuses existing capture scripts + same scoring model.
 // Operates on the active tab; paginates via portal-specific "Next".
@@ -1008,6 +1034,8 @@ async function runPortalAgent({ roleId, portal, targetShortlist = 10, hardCapPag
   try {
     const agentCompanies = await resolveTargetCompanies(role);
     const seen = new Set();
+    let prevFirstKey = "";   // first-card key of last scraped page; used for SPA change detection
+    let spaNextCands = null; // pre-fetched by pollUntilListChanges; skips re-scrape when set
 
     const targetProfiles = Number(maxProfiles) || 0;
     for (let page = 1; page <= hardCapPages; page++) {
@@ -1018,49 +1046,95 @@ async function runPortalAgent({ roleId, portal, targetShortlist = 10, hardCapPag
         logAgent(`Page ${page}: navigating to next page…`);
         const tabBeforeNav = await chrome.tabs.get(tab.id).catch(() => null);
         const urlBeforeNav = tabBeforeNav?.url || "";
-        const [clk] = await chrome.scripting.executeScript({
-          target: { tabId: tab.id },
-          func: () => {
-            const sels = [
-              'button[aria-label="Next"]:not([disabled])',
-              'a[aria-label="Next"]',
-              'button.next:not([disabled])',
-              'a.next',
-              '[class*="pagination"] a:last-child',
-              '[class*="Pagination"] button:not([disabled]):last-child',
-              'a[rel="next"]',
-              'li.next a',
-            ];
-            for (const s of sels) { const b = document.querySelector(s); if (b) { b.scrollIntoView(); b.click(); return true; } }
-            const nx = Array.from(document.querySelectorAll('a, button')).find(
-              (b) => /^\s*(next|›|»)\s*$/i.test(b.innerText?.trim() || b.textContent?.trim() || "") && !b.disabled);
-            if (nx) { nx.scrollIntoView(); nx.click(); return true; }
-            return false;
-          },
-        });
-        if (clk?.result) {
-          await waitForTabLoad(tab.id, 25000);
+
+        if (portal === "instahyre") {
+          // AngularJS SPA: clicking Next triggers a client-side re-render, NOT a
+          // document load — waitForTabLoad would burn its full timeout on the same DOM.
+          // After the click we poll the scraper until the first card key changes.
+          // ⚠ SELECTOR NEEDS LIVE VERIFICATION: the selectors below are generic
+          // heuristics (pagination container last-child, aria-label, text "Next").
+          // Test against an actual Instahyre recruiter results page before relying
+          // on them in production; update if the actual button has a different class.
+          const [clk] = await chrome.scripting.executeScript({
+            target: { tabId: tab.id },
+            func: () => {
+              const sels = [
+                'button[aria-label="Next"]:not([disabled])',
+                'a[aria-label="Next"]',
+                'button.next:not([disabled])',
+                'a.next',
+                '[class*="pagination"] a:last-child',
+                '[class*="Pagination"] button:not([disabled]):last-child',
+                'a[rel="next"]',
+                'li.next a',
+              ];
+              for (const s of sels) { const b = document.querySelector(s); if (b) { b.scrollIntoView(); b.click(); return true; } }
+              const nx = Array.from(document.querySelectorAll('a, button')).find(
+                (b) => /^\s*(next|›|»)\s*$/i.test(b.innerText?.trim() || b.textContent?.trim() || "") && !b.disabled);
+              if (nx) { nx.scrollIntoView(); nx.click(); return true; }
+              return false;
+            },
+          });
+          if (!clk?.result) { logAgent("Instahyre: Next button not found — stopping."); break; }
+          spaNextCands = await pollUntilListChanges(tab.id, file, prevFirstKey);
+          if (!spaNextCands) { logAgent("Instahyre list didn't change after Next — stopping."); break; }
         } else {
-          // Fallback: increment page param in URL (?page=N or ?pageNo=N)
-          try {
-            const u = new URL(urlBeforeNav);
-            const param = u.searchParams.has("page") ? "page" : u.searchParams.has("pageNo") ? "pageNo" : null;
-            if (!param) { logAgent("No next-page button or URL param — stopping."); break; }
-            u.searchParams.set(param, String(parseInt(u.searchParams.get(param) || "1", 10) + 1));
-            await chrome.tabs.update(tab.id, { url: u.href });
+          // Standard portal (Naukri etc.): navigation causes a full page reload.
+          const [clk] = await chrome.scripting.executeScript({
+            target: { tabId: tab.id },
+            func: () => {
+              const sels = [
+                'button[aria-label="Next"]:not([disabled])',
+                'a[aria-label="Next"]',
+                'button.next:not([disabled])',
+                'a.next',
+                '[class*="pagination"] a:last-child',
+                '[class*="Pagination"] button:not([disabled]):last-child',
+                'a[rel="next"]',
+                'li.next a',
+              ];
+              for (const s of sels) { const b = document.querySelector(s); if (b) { b.scrollIntoView(); b.click(); return true; } }
+              const nx = Array.from(document.querySelectorAll('a, button')).find(
+                (b) => /^\s*(next|›|»)\s*$/i.test(b.innerText?.trim() || b.textContent?.trim() || "") && !b.disabled);
+              if (nx) { nx.scrollIntoView(); nx.click(); return true; }
+              return false;
+            },
+          });
+          if (clk?.result) {
             await waitForTabLoad(tab.id, 25000);
-          } catch {
-            logAgent("Cannot navigate to next page — stopping.");
-            break;
+          } else {
+            // Fallback: increment page param in URL (?page=N or ?pageNo=N)
+            try {
+              const u = new URL(urlBeforeNav);
+              const param = u.searchParams.has("page") ? "page" : u.searchParams.has("pageNo") ? "pageNo" : null;
+              if (!param) { logAgent("No next-page button or URL param — stopping."); break; }
+              u.searchParams.set(param, String(parseInt(u.searchParams.get(param) || "1", 10) + 1));
+              await chrome.tabs.update(tab.id, { url: u.href });
+              await waitForTabLoad(tab.id, 25000);
+            } catch {
+              logAgent("Cannot navigate to next page — stopping.");
+              break;
+            }
           }
         }
       }
 
-      const [out] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: [file] });
-      let cands = out?.result;
-      if (cands && typeof cands.then === "function") cands = await cands;
-      if (!Array.isArray(cands)) cands = [];
-      cands = cands.filter((c) => { const k = c.profileUrl || c.name; if (seen.has(k)) return false; seen.add(k); return true; });
+      // Scrape: reuse the cands pre-fetched by pollUntilListChanges (SPA path),
+      // or execute the capture script fresh (standard path).
+      let rawArray;
+      if (spaNextCands !== null) {
+        rawArray = spaNextCands; spaNextCands = null;
+      } else {
+        const [out] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: [file] });
+        let r = out?.result;
+        if (r && typeof r.then === "function") r = await r;
+        const { cands: c, selectorLog } = unwrapScraperResult(r);
+        if (selectorLog) logAgent(selectorLog);
+        rawArray = c;
+      }
+      prevFirstKey = rawArray[0]?.profileUrl || rawArray[0]?.name || "";
+
+      let cands = rawArray.filter((c) => { const k = c.profileUrl || c.name; if (seen.has(k)) return false; seen.add(k); return true; });
       logAgent(`Page ${page}: found ${cands.length} new profile(s).`);
       agentState.total += cands.length;
       if (!cands.length && page > 1) { logAgent("Empty page — stopping."); break; }
@@ -1349,10 +1423,11 @@ async function runNaukriAgent({ roleId, targetShortlist = 10, hardCapPages = 10,
         target: { tabId: tab.id },
         files: ["content/naukri-resdex.js"],
       });
-      let cands = out?.result;
-      if (cands && typeof cands.then === "function") cands = await cands;
-      if (!Array.isArray(cands)) cands = [];
-      cands = cands.filter((c) => { const k = c.profileUrl || c.name; if (!k || seen.has(k)) return false; seen.add(k); return true; });
+      let rawResult = out?.result;
+      if (rawResult && typeof rawResult.then === "function") rawResult = await rawResult;
+      const { cands: rawCands, selectorLog } = unwrapScraperResult(rawResult);
+      if (selectorLog) logAgent(selectorLog); // surfaces raw card count from the scraper
+      let cands = rawCands.filter((c) => { const k = c.profileUrl || c.name; if (!k || seen.has(k)) return false; seen.add(k); return true; });
       logAgent(`Page ${page}: found ${cands.length} new profile(s).`);
       agentState.total += cands.length;
       if (!cands.length && page > 1) { logAgent("Empty page — stopping."); break; }
@@ -1360,67 +1435,71 @@ async function runNaukriAgent({ roleId, targetShortlist = 10, hardCapPages = 10,
       for (const c of cands) {
         if (targetProfiles && saved >= targetProfiles) break;
         if (shortlistCount >= targetShortlist) break;
-        let enriched = { ...c };
+        try {
+          let enriched = { ...c };
 
-        // Option 1: open profile in a NEW tab by simulating a click on the name link
-        // (Naukri's name links are target="_blank"). Falls back to card-only data if
-        // no new tab opens within timeout (Option 2).
-        if (c.profileUrl || typeof c.cardIndex === "number") {
-          try {
-            logAgent(`Opening ${c.name || "(no name)"} in new tab…`);
-            const profileTabId = await openNaukriProfileInNewTab(tab.id, c.profileUrl, c.cardIndex);
-            if (profileTabId) {
-              // Capture the real tab URL as profileUrl (covers javascript: href cases)
-              const pTab = await chrome.tabs.get(profileTabId).catch(() => null);
-              if (pTab?.url && /^https?:\/\//i.test(pTab.url)) enriched.profileUrl = pTab.url;
-              try {
-                const [pOut] = await chrome.scripting.executeScript({
-                  target: { tabId: profileTabId },
-                  files: ["content/naukri-profile.js"],
-                });
-                let p = pOut?.result;
-                if (p && typeof p.then === "function") p = await p;
-                if (p) {
-                  enriched = {
-                    ...enriched,
-                    name: p.name || enriched.name,
-                    headline: p.headline || enriched.headline,
-                    company: p.company || enriched.company,
-                    companies: (p.companies?.length ? p.companies : (enriched.companies || (enriched.company ? [enriched.company] : []))),
-                    location: p.location || enriched.location,
-                    experienceText: p.experienceText,
-                    skillsList: (p.skillsList?.length ? p.skillsList : enriched.keySkills) || [],
-                    availability: p.availability || enriched.availability || "active",
-                    openToWork: !!p.openToWork || !!enriched.openToWork,
-                  };
-                }
-              } catch (e) { logAgent("Profile scrape failed: " + (e.message || e)); }
-              try { await chrome.tabs.remove(profileTabId); } catch {}
-            } else {
-              logAgent("Profile tab didn't open — scoring from results-card data only.");
-            }
-          } catch (e) { logAgent("Open-profile failed: " + (e.message || e)); }
-        }
-
-        const cand = { id: uid(), searchId: search.id, roleId, portal: "naukri", ...enriched, createdAt: Date.now() };
-        for (let attempt = 0; attempt < 2; attempt++) {
-          try {
-            const s = await scoreCandidate({ role, candidate: cand, workMode: role.workMode, targetCompanies: agentCompanies, ...getHardExcludes(role) });
-            Object.assign(cand, s); cand.scoreError = null; break;
-          } catch (e) {
-            cand.scoreError = String(e.message || e);
-            await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
+          // Option 1: open profile in a NEW tab by simulating a click on the name link
+          // (Naukri's name links are target="_blank"). Falls back to card-only data if
+          // no new tab opens within timeout (Option 2).
+          if (c.profileUrl || typeof c.cardIndex === "number") {
+            try {
+              logAgent(`Opening ${c.name || "(no name)"} in new tab…`);
+              const profileTabId = await openNaukriProfileInNewTab(tab.id, c.profileUrl, c.cardIndex);
+              if (profileTabId) {
+                // Capture the real tab URL as profileUrl (covers javascript: href cases)
+                const pTab = await chrome.tabs.get(profileTabId).catch(() => null);
+                if (pTab?.url && /^https?:\/\//i.test(pTab.url)) enriched.profileUrl = pTab.url;
+                try {
+                  const [pOut] = await chrome.scripting.executeScript({
+                    target: { tabId: profileTabId },
+                    files: ["content/naukri-profile.js"],
+                  });
+                  let p = pOut?.result;
+                  if (p && typeof p.then === "function") p = await p;
+                  if (p) {
+                    enriched = {
+                      ...enriched,
+                      name: p.name || enriched.name,
+                      headline: p.headline || enriched.headline,
+                      company: p.company || enriched.company,
+                      companies: (p.companies?.length ? p.companies : (enriched.companies || (enriched.company ? [enriched.company] : []))),
+                      location: p.location || enriched.location,
+                      experienceText: p.experienceText,
+                      skillsList: (p.skillsList?.length ? p.skillsList : enriched.keySkills) || [],
+                      availability: p.availability || enriched.availability || "active",
+                      openToWork: !!p.openToWork || !!enriched.openToWork,
+                    };
+                  }
+                } catch (e) { logAgent("Profile scrape failed: " + (e.message || e)); }
+                try { await chrome.tabs.remove(profileTabId); } catch {}
+              } else {
+                logAgent("Profile tab didn't open — scoring from results-card data only.");
+              }
+            } catch (e) { logAgent("Open-profile failed: " + (e.message || e)); }
           }
+
+          const cand = { id: uid(), searchId: search.id, roleId, portal: "naukri", ...enriched, createdAt: Date.now() };
+          for (let attempt = 0; attempt < 2; attempt++) {
+            try {
+              const s = await scoreCandidate({ role, candidate: cand, workMode: role.workMode, targetCompanies: agentCompanies, ...getHardExcludes(role) });
+              Object.assign(cand, s); cand.scoreError = null; break;
+            } catch (e) {
+              cand.scoreError = String(e.message || e);
+              await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
+            }
+          }
+          const score = cand.score || 0;
+          if (score >= 80) { cand.bucket = "auto"; cand.shortlisted = true; shortlistCount++; }
+          else if (score >= 70) { cand.bucket = "review"; cand.shortlisted = false; }
+          else { cand.bucket = "reject"; cand.shortlisted = false; }
+          await append("candidates", cand);
+          saved++; agentState.processed = saved;
+          logAgent(`Saved ${cand.name || "(no name)"} — score ${cand.score ?? "?"} (${cand.bucket}). Shortlist ${shortlistCount}/${targetShortlist}.`);
+          chrome.runtime.sendMessage({ type: "agentCandidate", candidate: cand }).catch(() => {});
+          await new Promise((r) => setTimeout(r, 600));
+        } catch (e) {
+          logAgent(`Skipping ${c.name || "(no name)"} — error: ${e.message || e}`);
         }
-        const score = cand.score || 0;
-        if (score >= 80) { cand.bucket = "auto"; cand.shortlisted = true; shortlistCount++; }
-        else if (score >= 70) { cand.bucket = "review"; cand.shortlisted = false; }
-        else { cand.bucket = "reject"; cand.shortlisted = false; }
-        await append("candidates", cand);
-        saved++; agentState.processed = saved;
-        logAgent(`Saved ${cand.name || "(no name)"} — score ${cand.score ?? "?"} (${cand.bucket}). Shortlist ${shortlistCount}/${targetShortlist}.`);
-        chrome.runtime.sendMessage({ type: "agentCandidate", candidate: cand }).catch(() => {});
-        await new Promise((r) => setTimeout(r, 600));
       }
 
       // Profiles opened in their own tabs — results tab stays put across pagination.
